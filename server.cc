@@ -153,6 +153,16 @@ string getContentType(string fileRequested){
 	return "text/plain";
 }
 
+bool fileExists(string fileRequested){
+	bool ans = false;
+	ifstream file(fileRequested);
+	if (file.good())
+		ans = true;
+	file.close();
+	return ans;
+	
+}
+
 int main(int argc, char *argv[]) {
 	int s; 			// socket descriptor
 	int len;		// length of reveived data
@@ -181,7 +191,9 @@ int main(int argc, char *argv[]) {
 		// works
 		cout << "Waiting..." << endl;
 		int fd = accept(s, (struct sockaddr *)&sa, (unsigned int *)&sa_len);
-		assert(fd != -1);
+		if (fd == -1) {
+			throw ("Connection Error");
+		}
 		cout << "Connection accepted" << endl;
 
 		try {
@@ -197,21 +209,29 @@ int main(int argc, char *argv[]) {
 			request = buf;
 			int filebeginning, fileend;
 			filebeginning = request.find("GET /") + 5;
-			fileend = request.find("HTTP/1") - 6;
-			fileRequested = request.substr(filebeginning, fileend);
+			fileend = request.find("HTTP/1");
 
-			// attempt to open fileRequested
-			file = ifstream(DOCUMENT_ROOT + fileRequested);
+			//display index file if not searching anything specific
+			string tempFileRequest = request.substr(filebeginning, fileend-filebeginning-1);
+			if (tempFileRequest == "")
+				fileRequested = "index.html";
+			else {
+				fileRequested = tempFileRequest;
+			}
 
-			if (file.fail()) {
+			if (!fileExists(DOCUMENT_ROOT + fileRequested)){
 				metadata = "HTTP/1.1 404 Not Found\r\n";
 				metadata += "Content-Type: text/html\r\n";
 				metadata += "Content-Length: 0\r\n";
 				metadata += "\r\n";
-				if (metadata.length() != write(fd, metadata.c_str(), metadata.length()))
-					throw ("Error writing to socket");
+				cout << "metadata: \n" << metadata << endl;
+				if (metadata.size() != write(fd, metadata.c_str(), metadata.size()))
+					cout<<"Made it past here"<<endl;
+					//throw ("Error writing to socket");
 				throw ("File not found");
 			}
+			cout<<"Hello"<<endl;
+			file = ifstream(DOCUMENT_ROOT + fileRequested);
 
 			cout << "Successfully opened file" << endl;
 
@@ -243,20 +263,16 @@ int main(int argc, char *argv[]) {
 			file.read(fileData, fileSize);
 			if (fileSize != write(fd, fileData, fileSize))
 				throw ("Error writing to socket");
+
 			
 		}
-		catch (string e){
-			cout << e << endl;
-			goto cleanup;
-		}
-	     cleanup:
-	        // This code happens on both error and not error
-	        // Don't forget to close the file too
-			cout << "Cleaning up" << endl;
+		catch (char const* e){
+			cout << "uh oh" << endl;
 			file.close();
-	        close(fd);
+			close(fd);
+		}
+
+		file.close();
+		close(fd);
 	}
 }
-
-
-
