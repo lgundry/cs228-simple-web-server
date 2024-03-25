@@ -9,6 +9,7 @@
 #include <assert.h>
 #include <fstream>
 #include <cstdint>
+#include <cerrno>
 
 using namespace std;
 
@@ -130,10 +131,6 @@ int MakeServerSocket(const char *port) {
 	return s;
 }
 
-// string getStatus(){
-
-// }
-
 string getContentType(string fileRequested){
 	string extension = fileRequested.substr(fileRequested.find_last_of(".") + 1);
 	switch (extension[0]) {
@@ -156,32 +153,19 @@ string getContentType(string fileRequested){
 	return "text/plain";
 }
 
-// string getDate(){
-
-// }
-
-// string getServer(){
-
-// }
-
 int main(int argc, char *argv[]) {
-
-
 	int s; 			// socket descriptor
 	int len;		// length of reveived data
 	char buf[BUFSIZE];	// buffer in which to read
 	int ret;		// return code from various system calls
 
-	const string DOCUMENT_ROOT = "~/site";
+	const string DOCUMENT_ROOT = "/home/lgundry/site/";
 	string request;
 	string fileRequested;
-	string metaData;
-	string page;
-	fstream file;
-	unsigned char fileData[BUFSIZE];
+	string metadata;
+	ifstream file;
+	char* fileData;
 	int fileSize;
-
-
 
 	s = MakeServerSocket(argv[1]);
 	assert (s != -1);
@@ -191,8 +175,7 @@ int main(int argc, char *argv[]) {
 		int sa_len = sizeof(sa);
 		request = "";
 		fileRequested = "";
-		metaData = "";
-		page = "";
+		metadata = "";
 		fileSize = 0;
 
 		// works
@@ -214,46 +197,53 @@ int main(int argc, char *argv[]) {
 			request = buf;
 			int filebeginning, fileend;
 			filebeginning = request.find("GET /") + 5;
-			fileend = request.find("HTTP/1") - 5;
+			fileend = request.find("HTTP/1") - 6;
 			fileRequested = request.substr(filebeginning, fileend);
 
 			// attempt to open fileRequested
-			file =  fstream(DOCUMENT_ROOT + fileRequested);
+			file = ifstream(DOCUMENT_ROOT + fileRequested);
+
 			if (file.fail()) {
-				metaData = "HTTP/1.1 404 Not Found\r\n";
-				metaData += "Content-Type: text/html\r\n";
-				metaData += "Content-Length: 0\r\n";
-				metaData += "\r\n";
-				if (metaData.size() != write(fd, metaData.c_str(), metaData.size()));
+				metadata = "HTTP/1.1 404 Not Found\r\n";
+				metadata += "Content-Type: text/html\r\n";
+				metadata += "Content-Length: 0\r\n";
+				metadata += "\r\n";
+				if (metadata.length() != write(fd, metadata.c_str(), metadata.length()))
 					throw ("Error writing to socket");
 				throw ("File not found");
 			}
+
+			cout << "Successfully opened file" << endl;
 
 			// get file size in bytes
 			file.seekg(0, file.end);
 			fileSize = file.tellg();
 			file.seekg(0, file.beg);
 
+			// cout << "Successfully got file size - " << to_string(fileSize) << endl;
+
 			// generate metadata
-			metaData = "HTTP/1.1 200 OK\r\n";
-			metaData += "Date: " + getDate() + "\r\n";
-			metaData += "Server: CS 228 Web Server\r\n";
-			metaData += "Content-Length: " + to_string(fileSize) + "\r\n";
-			metaData += "Content-Type: " + getContentType(fileRequested) + "\r\n";
-			metaData += "\r\n";
+			metadata = "HTTP/1.1 200 OK\r\n";
+			metadata += "Date: " + getDate() + "\r\n";
+			metadata += "Server: CS 228 Web Server\r\n";
+			metadata += "Content-Length: " + to_string(fileSize) + "\r\n";
+			metadata += "Content-Type: " + getContentType(fileRequested) + "\r\n";
+			metadata += "\r\n";
 
+			cout << "metadata:\n" << metadata << endl;
 
-			// write metadata to socket
-			if (metaData.size() != write(fd, metaData.c_str(), metaData.size()))
+			//write metadata to socket
+			if (metadata.size() != write(fd, metadata.c_str(), metadata.size()))
 				throw ("Error writing to socket");
 
-			// write file to socket
-			while (file.good()) {
-				file.read((char *)fileData, BUFSIZE);
-				if (file.gcount() != write(fd, fileData, file.gcount()))
-					throw ("Error writing to socket");
-			}
+			// cout << "Success so far" << endl;
 
+			// write file data to socket
+			fileData = new char[fileSize];
+			file.read(fileData, fileSize);
+			if (fileSize != write(fd, fileData, fileSize))
+				throw ("Error writing to socket");
+			
 		}
 		catch (string e){
 			cout << e << endl;
@@ -262,6 +252,7 @@ int main(int argc, char *argv[]) {
 	     cleanup:
 	        // This code happens on both error and not error
 	        // Don't forget to close the file too
+			cout << "Cleaning up" << endl;
 			file.close();
 	        close(fd);
 	}
