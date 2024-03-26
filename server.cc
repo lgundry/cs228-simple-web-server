@@ -1,3 +1,6 @@
+// Logan Gundry
+// IMPORTANT: Check main for DOCUMENT_ROOT and LOG_FILES for correct path of files on lines 167 and 168
+// the log file name is access.log. you can change the name on line 220
 #include <iostream>		// cout, cerr, etc
 #include <stdio.h>		// perror
 #include <string.h>		// bcopy
@@ -6,10 +9,10 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
-#include <assert.h>
-#include <fstream>
-#include <cstdint>
-#include <cerrno>
+#include <assert.h> // assertions
+#include <fstream>	// file streams
+#include <cstdint>	// for getDate function
+#include <ctime>	//for log timestamp
 
 using namespace std;
 
@@ -149,18 +152,10 @@ string getContentType(string fileRequested){
 		return "image/gif";
 	case 'p':
 		return "image/png";
+	case 'i':
+		return "image/ico";
 	}
 	return "text/plain";
-}
-
-bool fileExists(string fileRequested){
-	bool ans = false;
-	ifstream file(fileRequested);
-	if (file.good())
-		ans = true;
-	file.close();
-	return ans;
-	
 }
 
 int main(int argc, char *argv[]) {
@@ -170,6 +165,7 @@ int main(int argc, char *argv[]) {
 	int ret;		// return code from various system calls
 
 	const string DOCUMENT_ROOT = "/home/lgundry/site/";
+	const string LOG_FILES = "/home/lgundry/site/logs/";
 	string request;
 	string fileRequested;
 	string metadata;
@@ -211,6 +207,21 @@ int main(int argc, char *argv[]) {
 			filebeginning = request.find("GET /") + 5;
 			fileend = request.find("HTTP/1");
 
+			cout << "Request: \n" << request << endl;
+
+			// get referrer
+			int refbeginning, refend;;
+			refbeginning = request.find("User-Agent: ") + 12;
+			refend = request.find("\n", refbeginning);
+			string referrer = request.substr(refbeginning, refend - refbeginning - 1);
+
+			// generate log in combined format
+			ofstream log;
+			log = ofstream(LOG_FILES + "access.log", ios::app);
+			if (log.fail())
+				cout << "Error opening Log file" << endl;
+
+
 			//display index file if not searching anything specific
 			string tempFileRequest = request.substr(filebeginning, fileend-filebeginning-1);
 			if (tempFileRequest == "")
@@ -219,20 +230,17 @@ int main(int argc, char *argv[]) {
 				fileRequested = tempFileRequest;
 			}
 
-			if (!fileExists(DOCUMENT_ROOT + fileRequested)){
-				metadata = "HTTP/1.1 404 Not Found\r\n";
-				metadata += "Content-Type: text/html\r\n";
-				metadata += "Content-Length: 0\r\n";
-				metadata += "\r\n";
-				cout << "metadata: \n" << metadata << endl;
-				if (metadata.size() != write(fd, metadata.c_str(), metadata.size()))
-					cout<<"Made it past here"<<endl;
-					//throw ("Error writing to socket");
-				throw ("File not found");
-			}
-			cout<<"Hello"<<endl;
 			file = ifstream(DOCUMENT_ROOT + fileRequested);
-
+			if (!file.good()){
+				cout << "Error opening file" << endl;
+				file.close();
+				fileRequested = "404.html";
+				file = ifstream(DOCUMENT_ROOT + fileRequested);
+				if (!file.good()) {
+					cout << "Error opening 404 file" << endl;
+					throw ("Error opening 404 file");
+				}
+			}
 			cout << "Successfully opened file" << endl;
 
 			// get file size in bytes
@@ -240,23 +248,34 @@ int main(int argc, char *argv[]) {
 			fileSize = file.tellg();
 			file.seekg(0, file.beg);
 
-			// cout << "Successfully got file size - " << to_string(fileSize) << endl;
+			cout << "File Size: " << fileSize << endl;
+
+			
 
 			// generate metadata
-			metadata = "HTTP/1.1 200 OK\r\n";
+			if (fileRequested == "404.html") {
+				metadata = "HTTP/1.1 404 Not Found\r\n";
+				// generate log for 404 in combined format
+				log << gethostbyaddr(&sa.sin_addr.s_addr, sizeof(sa.sin_addr), AF_INET)->h_name << " - - [" << "25/Mar/2024:23:27:41 -0500" << "] \"GET /" << fileRequested << " HTTP/1.1\" 404 " << fileSize << " \"" << referrer << "\"" << endl;
+			}
+			else {
+				metadata = "HTTP/1.1 200 OK\r\n";
+				// generate log for 200 in combined format
+				log << gethostbyaddr(&sa.sin_addr.s_addr, sizeof(sa.sin_addr), AF_INET)->h_name << " - - [" << "25/Mar/2024:23:27:41 -0500" << "] \"GET /" << fileRequested << " HTTP/1.1\" 200 " << fileSize << " \"" << referrer << "\""<<  endl;
+			}
 			metadata += "Date: " + getDate() + "\r\n";
 			metadata += "Server: CS 228 Web Server\r\n";
 			metadata += "Content-Length: " + to_string(fileSize) + "\r\n";
 			metadata += "Content-Type: " + getContentType(fileRequested) + "\r\n";
 			metadata += "\r\n";
 
-			cout << "metadata:\n" << metadata << endl;
+			cout << "metadata:\n" << metadata << endl;			
 
 			//write metadata to socket
 			if (metadata.size() != write(fd, metadata.c_str(), metadata.size()))
 				throw ("Error writing to socket");
 
-			// cout << "Success so far" << endl;
+			cout << "metadata written to socket" << endl;
 
 			// write file data to socket
 			fileData = new char[fileSize];
@@ -264,14 +283,15 @@ int main(int argc, char *argv[]) {
 			if (fileSize != write(fd, fileData, fileSize))
 				throw ("Error writing to socket");
 
+			cout << "file data written to socket" << endl;
 			
 		}
 		catch (char const* e){
 			cout << "uh oh" << endl;
+			cout << e << endl;
 			file.close();
 			close(fd);
 		}
-
 		file.close();
 		close(fd);
 	}
